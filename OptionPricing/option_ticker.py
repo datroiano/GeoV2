@@ -8,10 +8,8 @@ def create_options_ticker(ticker, strike, expiration_year, expiration_month, exp
     expiration_month = str(expiration_month).zfill(2)
     expiration_day = str(expiration_day).zfill(2)
     contract_type = 'C' if contract_type else 'P'
-
     strike_d = Decimal(strike)
     num_dec = strike_d.as_tuple().exponent
-    length_strike = len(strike.replace('.', ''))
 
     if num_dec == 0:
         strike_string_for_insertion = f'{strike.replace(".", "").zfill(8)}'
