@@ -68,7 +68,6 @@ class TwoOptionStrategy:
         return simulation_data
 
 
-
 ticker = 'CRM'
 trade_date = '2023-11-29'
 expirations = '2023-12-01'
