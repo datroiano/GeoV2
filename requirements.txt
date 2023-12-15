@@ -3,3 +3,4 @@ datetime
 customtkinter
 packaging
 finnhub-python
+pandas

@@ -18,8 +18,13 @@ class TestCompanies:
         self.data_limit = data_limit
         self.skipped_tickers = skipped_tickers
 
+        # Make finnhub client request to retrieve tickers, report dates, and time period
         self.symbols_list = self.finnhub_retrieval()
+
+        # Make initial Polygon request to retrieve average price
         self.price_averages = self.polygon_retrieval(avg_time_start="09:30:00", avg_time_end="11:00:00")
+
+        # Make secondary Polygon request to retrieve and sort option chains, choosing target strike
         self.correct_strikes = self.option_chain_retrieval(data_limit=self.data_limit)
 
     def finnhub_retrieval(self):
@@ -27,15 +32,33 @@ class TestCompanies:
 
         raw_data = finnhub_client.earnings_calendar(_from=self.from_date, to=self.to_date,
                                                     symbol=self.underlying_ticker, international=False)
-        earnings_calendar = [item for item in raw_data["earningsCalendar"] if
-                             len(self.skipped_tickers) == 0 or item['symbol'] not in self.skipped_tickers]
+        earnings_calendar = raw_data["earningsCalendar"]
 
         symbols_list = []
         for item in earnings_calendar:
-            if (not self.report_hour or item["hour"] == self.report_hour) and item[
-                "revenueEstimate"] is not None and str(item["revenueEstimate"]).isdigit() and int(
-                    item["revenueEstimate"]) >= self.min_revenue:
-                trade_date = item['date'] if item['hour'] == 'amc' else GetDate.get_date_day_before(item['date'])
+            if len(self.skipped_tickers) != 0:
+                skip_flag = False  # Flag to track if a match is found in skipped_tickers
+                for tick in self.skipped_tickers:
+                    if item['symbol'] == tick:
+                        skip_flag = True  # Set flag if a match is found
+                        break  # Break out of the inner loop
+
+                if skip_flag:
+                    continue  # Continue the outer loop if a match is found in skipped_tickers
+
+            if (
+                    (not self.report_hour or item["hour"] == self.report_hour)
+                    and item["revenueEstimate"] is not None
+                    and str(item["revenueEstimate"]).isdigit()
+                    and int(item["revenueEstimate"]) >= self.min_revenue
+            ):
+                if item['hour'] == 'amc':
+                    trade_date = item['date']
+                elif item['hour'] == 'bmo':
+                    trade_date = GetDate.get_date_day_before(item['date'])
+                else:
+                    continue
+
                 earnings_report_date = item['date']
                 new_entry = {
                     'symbol': item["symbol"],
@@ -47,18 +70,25 @@ class TestCompanies:
                     'fiscal_year': item['year'],
                     'fiscal_quarter': item['quarter'],
                 }
+
                 symbols_list.append(new_entry)
 
         return symbols_list
 
     def polygon_retrieval(self, avg_time_start, avg_time_end, polygon_api_key='r1Jqp6JzYYhbt9ak10x9zOpoj1bf58Zz'):
         price_averages = []
+        i = 0
 
-        headers = {"Authorization": f"Bearer {polygon_api_key}"}
+        headers = {
+            "Authorization": f"Bearer {polygon_api_key}"
+        }
         multiplier = "1"
         timespan = "minute"
 
-        for index, item in enumerate(self.symbols_list[:self.max_companies]):
+        j = 0
+        for item in self.symbols_list:
+            j += 1
+
             ticker = item['symbol']
             from_date = item['trade_date']
             to_date = item['trade_date']
@@ -69,13 +99,13 @@ class TestCompanies:
 
             processed_data = []
             try:
-                for result in response.get('results', []):
-                    if int(to_unix_time(f'{from_date} {avg_time_start}')) <= int(result.get('t', 0)) <= int(
-                            to_unix_time(f'{to_date} {avg_time_end}')):
-                        ticker = response.get('ticker', '')
-                        time = from_unix_time(result.get('t', 0))
-                        high = result.get('h', 0)
-                        low = result.get('l', 0)
+                for result in response['results']:
+                    if (int(to_unix_time(f'{from_date} {avg_time_start}')) <= int(result['t']) <=
+                            int(to_unix_time(f'{to_date} {avg_time_end}'))):
+                        ticker = response['ticker']
+                        time = from_unix_time(result['t'])
+                        high = result['h']
+                        low = result['l']
 
                         processed_data.append({
                             'ticker': ticker,
@@ -86,7 +116,10 @@ class TestCompanies:
             except KeyError:
                 break
 
-            raw_prices = [(data_point['high'] + data_point['low']) / 2 for data_point in processed_data]
+            raw_prices = []
+            for data_point in processed_data:
+                raw_prices.append((data_point['high'] + data_point['low']) / 2)
+
             earnings_report_date = item['earnings_date']
             new_entry = {
                 'symbol': ticker,
@@ -99,13 +132,22 @@ class TestCompanies:
                 'fiscal_year': item['fiscal_year'],
                 'fiscal_quarter': item['fiscal_quarter'],
             }
+
             price_averages.append(new_entry)
+
+            i += 1
+            if i >= self.max_companies:
+                break
 
         return price_averages
 
     def option_chain_retrieval(self, data_limit, polygon_api_key='r1Jqp6JzYYhbt9ak10x9zOpoj1bf58Zz'):
         correct_strikes = []
-        headers = {"Authorization": f"Bearer {polygon_api_key}"}
+        headers = {
+            "Authorization": f"Bearer {polygon_api_key}"
+        }
+
+        # print(f'Ticker Count for Option Chain Retrieval: {len(self.price_averages)}')  # Reference only
 
         for item in self.price_averages:
             ticker = item["symbol"]
@@ -113,12 +155,13 @@ class TestCompanies:
 
             response = requests.get(endpoint, headers=headers).json()
 
-            raw_strikes = [chain['details']['strike_price'] for chain in response.get('results', [])]
-            target_strike = closest_number(numbers_set=raw_strikes, target=item["avg_price"])
+            raw_strikes = []
+            for chain in response['results']:
+                raw_strikes.append(chain['details']['strike_price'])
 
             new_entry = {
                 'symbol': ticker,
-                'target_strike': target_strike,
+                'target_strike': closest_number(numbers_set=raw_strikes, target=item["avg_price"]),
                 'trade_date': item['trade_date'],
                 'target_expiration_date': GetDate.get_date_next_friday(item['trade_date']),
                 'strikes_iterated': len(raw_strikes),
@@ -135,9 +178,7 @@ class TestCompanies:
         return correct_strikes
 
 
-# simulation = TestCompanies(min_revenue=0, from_date="2023-11-01", to_date="2023-11-29",
-#                            report_hour="", data_limit=60, skipped_tickers=[])
-# print(simulation.symbols_list)
-# - which is in the format: [{'symbol': 'SNPS', 'target_strike': 550,
-# 'date': '2023-11-29', 'target_expiration_date': '2023-12-01'}]
+simulation = TestCompanies(min_revenue=100_000_000, from_date="2023-11-15", to_date="2023-12-14",
+                           report_hour="", data_limit=60, skipped_tickers=[], max_companies=3)
+print(simulation.price_averages)
 
