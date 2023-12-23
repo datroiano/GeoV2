@@ -178,7 +178,4 @@ class TestCompanies:
         return correct_strikes
 
 
-simulation = TestCompanies(min_revenue=100_000_000, from_date="2023-11-15", to_date="2023-12-14",
-                           report_hour="", data_limit=60, skipped_tickers=[], max_companies=3)
-print(simulation.price_averages)
 
