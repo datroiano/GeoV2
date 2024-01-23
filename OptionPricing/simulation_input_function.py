@@ -62,9 +62,10 @@ def companies_bulk_simulation(corrected_strikes, entry_start, entry_end, exit_st
     return master_out
 
 
-sim = TestCompanies(min_revenue=10_000_000_000, from_date="2023-12-01", to_date="2023-12-22",
+sim = TestCompanies(min_revenue=10_000_000_000, from_date="2024-01-01", to_date="2024-01-22",
                     report_hour="", data_limit=60, skipped_tickers=[], max_companies=5)
 
 x = companies_bulk_simulation(sim.correct_strikes, entry_start='09:30:00', entry_end='11:00:00',
                               exit_start="14:00:00", exit_end="15:59:00")
 
+print(x)

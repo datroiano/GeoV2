@@ -1,16 +1,9 @@
+from options_contract import OptionsContract
 from time_functions import to_unix_time, from_unix_time
 from option_ticker import create_options_ticker
 import requests
 from datetime import datetime, timedelta
-
-
-class OptionsContract:
-    def __init__(self, ticker, strike, expiration_date, is_call=True):
-        self.ticker = str(ticker).upper()
-        self.strike = float(strike)
-        self.expiration_date = str(expiration_date)
-        self.is_call = is_call
-
+from dateutil import parser
 
 class OptionsContractsPriceData(OptionsContract):
     def __init__(self, options_contract=None, from_date=None, to_date=None, window_start_time=None,
@@ -56,20 +49,45 @@ class OptionsContractsPriceData(OptionsContract):
     def pull_options_price_data(self):
         cleaned_response = None
         if self.data:
-            cleaned_response = {
-                from_unix_time(timestamp['t']): {
-                    'volume': timestamp['v'],
-                    'volume_weighted': timestamp['vw'],
-                    'open': timestamp['o'],
-                    'unix_time': timestamp['t'],
-                    'close': timestamp['c'],
-                    'high': timestamp['h'],
-                    'low': timestamp['l'],
-                    'number': timestamp['n']
+            raw_data = self.data.get('results', [])
+            if self.fill_gaps:
+                cleaned_response = self._fill_gaps(raw_data)
+            else:
+                cleaned_response = {
+                    from_unix_time(timestamp['t']): {
+                        'volume': timestamp['v'],
+                        'volume_weighted': timestamp['vw'],
+                        'open': timestamp['o'],
+                        'unix_time': timestamp['t'],
+                        'close': timestamp['c'],
+                        'high': timestamp['h'],
+                        'low': timestamp['l'],
+                        'number': timestamp['n']
+                    }
+                    for timestamp in raw_data
                 }
-                for timestamp in self.data.get('results', [])
-            }
         return cleaned_response
+
+    def _fill_gaps(self, raw_data):
+        filled_response = {}
+        current_timestamp = raw_data[0]['t']
+        for timestamp in raw_data:
+            while current_timestamp < timestamp['t']:
+                filled_response[from_unix_time(current_timestamp)] = filled_response.get(from_unix_time(current_timestamp - 60), filled_response[from_unix_time(current_timestamp)])  # Fill gaps by assuming the price stays the same until the next available data point
+                current_timestamp += 60  # Increment by 1 minute
+
+            filled_response[from_unix_time(timestamp['t'])] = {
+                'volume': timestamp['v'],
+                'volume_weighted': timestamp['vw'],
+                'open': timestamp['o'],
+                'unix_time': timestamp['t'],
+                'close': timestamp['c'],
+                'high': timestamp['h'],
+                'low': timestamp['l'],
+                'number': timestamp['n']
+            }
+
+        return filled_response
 
     def get_query_count_for_timeperiod(self):
         if self.data:
@@ -78,43 +96,19 @@ class OptionsContractsPriceData(OptionsContract):
     def get_raw_data(self):
         return self.data
 
-    def gaps_filled_price_data(self):
-        filled_data = {}
-        data = self.pull_options_price_data()
-        timestamps = list(data.keys())
-        datetime_objects = [datetime.strptime(ts, '%Y-%m-%d %H:%M:%S') for ts in timestamps]
-        start_time = min(datetime_objects)
-        end_time = max(datetime_objects)
-        expected_timestamps = [start_time + timedelta(minutes=i) for i in
-                               range(int((end_time - start_time).total_seconds() / 60) + 1)]
-        missing_timestamps = [ts.strftime('%Y-%m-%d %H:%M:%S') for ts in expected_timestamps if
-
-                              ts not in datetime_objects]
-        full_timestamps = timestamps + missing_timestamps
-        full_timestamps.sort()
-
-        current_filled_point = {}
-        for stamp in full_timestamps:
-            if stamp in timestamps:
-                current_filled_point = data[stamp]
-            filled_data[stamp] = current_filled_point
-
-        return filled_data
 
 
-# Creating an OptionsContract instance
-# option_contract = OptionsContract(ticker='AAPL', strike=180, expiration_date='2023-12-15', is_call=True)
-#
-# # Creating an OptionsContractsPriceData instance
-# options_price_data = OptionsContractsPriceData(
-#     options_contract=option_contract,
-#     from_date='2023-12-10',
-#     to_date='2023-12-11',
-#     window_start_time='09:30:00',
-#     window_end_time='16:00:00',
-#     timespan='minute',
-#     multiplier=1
-# )
-#
-# filled_price_data = options_price_data.gaps_filled_price_data()
+option_contract = OptionsContract(ticker='AAPL', strike=180, expiration_date='2023-12-15', is_call=True)
 
+# Creating an OptionsContractsPriceData instance
+options_price_data = OptionsContractsPriceData(
+    options_contract=option_contract,
+    from_date='2023-12-10',
+    to_date='2023-12-11',
+    window_start_time='09:30:00',
+    window_end_time='16:00:00',
+    timespan='minute',
+    multiplier=1,
+    fill_gaps=1)
+
+print(options_price_data.pull_options_price_data())

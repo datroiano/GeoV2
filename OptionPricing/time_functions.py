@@ -7,7 +7,7 @@ def to_unix_time(datetime_str):
         dt_obj = datetime.strptime(datetime_str, '%Y-%m-%d %H:%M:%S')
         unix_time_ms = int(mktime(dt_obj.timetuple()) * 1000)
 
-        return str(unix_time_ms)
+        return unix_time_ms
 
     except ValueError:
         return "Invalid datetime format. Please provide a datetime in the format '%Y-%m-%d %H:%M:%S'."
